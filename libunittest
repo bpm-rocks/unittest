@@ -1,0 +1,371 @@
+#!/usr/bin/env bash
+
+. bpm
+bpm::include assign
+bpm::include is
+bpm::include strict
+bpm::include time
+
+
+# Adds together the results from running two test sets.
+#
+# $1   - Destination variable name
+# $2-@ - The contents of the two arrays.
+#
+# Examples
+#
+#   summary=()
+#
+#   for test in *.test; do
+#       unittest::runSet setResult "$test"
+#
+#       # Note: summary is second because it could be an empty array.
+#       unittest::addResults summary "${setResult[@]}" "${summary[@]}"
+#   done
+#
+# Returns nothing.
+unittest::addResults() {
+    local "${1-}" && assign::array "$1" "$((${2:-0} + ${5:-0}))" "$((${3:-0} + ${6:-0}))" "$((${4:-0} + ${7:-0}))"
+}
+
+
+# Write a colored bit of text, resetting the color afterwards.
+#
+# $1 - ANSI color code.
+# $2 - Text to write.
+#
+# No newline is appended.
+#
+# Returns nothing.
+unittest::colorText() {
+    echo -n $'\E['"${1}m$2"$'\E[39m'
+}
+
+
+# Gets a list of test functions that are in the current environment.
+#
+# $1 - Destination variable name for the array of function names. This
+#      value is not changed if there are no test function names defined.
+#
+# Returns true (0) if there are functions listed, false otherwise.
+unittest::getTestFunctions() {
+    local list
+
+    list=$(declare -F | grep '^declare -f unittest::case::' || :)
+    list=${list//declare -f /}
+    list=( $list )
+
+    if [[ "${#list[@]}" -eq 0 ]]; then
+        return 1
+    fi
+
+    # shellcheck disable=SC2068
+    local "${1-}" && assign::array "$1" ${list[@]+"${list[@]}"}
+}
+
+
+# Eliminates all test cases from memory and resets the setup and teardown
+# functions. Useful right before running a test suite.
+unittest::resetTestSet() {
+    local list testName
+
+    # Remove this function so there's no recursion.
+    #
+    # Returns nothing.
+    # Dummy function. Intended to be overridden by a test set.
+    #
+    # Returns nothing.
+    unittest::setup() {
+        :
+    }
+
+
+    # Dummy function. Intended to be overridden by a test set.
+    #
+    # Returns nothing.
+    unittest::teardown() {
+        :
+    }
+
+
+    # Remove all functions named unittest::case::*
+    if unittest::getTestFunctions list; then
+        for testName in "${list[@]}"; do
+            unset -f "$testName"
+        done
+    fi
+}
+
+
+# Run the unit tests, which are functions named `unittest::case::*`.
+#
+# This function is overwritten with an empty one when dealing with multiple
+# test files (a test suite).
+#
+# Examples
+#
+#   #!/usr/bin/env bash
+#   . bpm
+#   bpm::include unittest
+#   unittest::run
+#
+# Returns the result from unittest::showResults, where 0 means all tests
+# executed correctly and other numbers correspond to problems.
+unittest::run() {
+    local diff end start summary
+
+    if [[ -n "${UNITTEST_RUNNING:-}" ]]; then
+        # Already running unit tests
+        return
+    fi
+
+    # Set a default list of modes. If a list was set, use that instead.
+    unittest::setModes "${UNITTEST_MODES[@]}" || return 1
+    time::stampHr start
+    UNITTEST_RUNNING=true unittest::runSet summary "${BASH_SOURCE[1]}"
+    time::stampHr end
+    time::stampDiff diff "$start" "$end"
+    unittest::showResults "${summary[@]}" "$diff"
+}
+
+
+# Runs a set of tests. These are tests that are all loaded by one test file.
+#
+# $1 - Target variable for the summary of the test results.
+# $2 - Filename that contains the test set.
+#
+# Examples
+#
+#   time::stampHr start
+#   unittest::runSet summary ./test
+#   time::stampHr end
+#   time::stampDiff diff "$start" "$end"
+#   unittest::showResults "${summary[@]}" "$diff"
+#
+# Returns nothing.
+unittest::runSet() {
+    local fail list oldModes oldPwd oldSetOptions pass result test
+
+    target=${1-}
+    filename=${2-}
+    pass=0
+    fail=0
+
+    oldPwd=$PWD
+    oldSetOptions=$-
+    oldModes=( "${UNITTEST_MODES[@]}" )
+    unittest::resetTestSet
+
+    if [[ ! -f "$filename" ]]; then
+        echo "Test file does not exist: $filename" >&2
+
+        # Indicate that a failure occurred.
+        local "$target" && assign::array "$target" 1 0 1
+
+        return
+    fi
+
+    if [[ "$filename" == */* ]]; then
+        cd "${2%/*}"
+    fi
+
+    . "./${filename##*/}"
+    
+    if unittest::getTestFunctions list; then
+        for test in "${list[@]}"; do
+            for mode in "${UNITTEST_MODES[@]}"; do
+                # Run the test in a safe subshell via strict::run.
+                strict::run result unittest::runTest "$test" "$mode"
+
+                if [[ "$result" -eq 0 ]]; then
+                    unittest::colorText 32 .
+                    pass=$((pass + 1))
+                else
+                    unittest::colorText 91 X
+                    echo ""
+                    echo "Failure: $filename, $test(), $mode mode"
+                    fail=$((fail + 1))
+                fi
+            done
+        done
+    fi
+
+    # Restore the environment
+    cd "$oldPwd"
+    set "+$-" "-$oldSetOptions"
+    unittest::setModes "${oldModes[@]}" || return 1
+
+    local "$target" && assign::array "$target" "$((pass + fail))" "$pass" "$fail"
+}
+
+
+# Runs the suite of tests.
+#
+# $@ - Test files.
+#
+# Loads each of the test files and runs all of the tests within. Displays
+# a summary at the end.
+#
+# Examples
+#
+#   #!/usr/bin/env bash
+#   . bpm
+#   bpm::include unittest
+#   unittest::runSuite tests/*.test tests/**/*.test
+#
+# Returns the result from unittest::showResults, where 0 means all tests
+# executed correctly and other numbers correspond to problems.
+unittest::runSuite() {
+    local diff end setResult start summary testFile
+
+    if [[ $# -eq 0 ]]; then
+        echo "Test files must be specified." >&2
+
+        return 1
+    fi
+
+    # Set a default list of modes. If a list was set, use that instead.
+    unittest::setModes "${UNITTEST_MODES[@]}" || return 1
+    summary=()
+    time::stampHr start
+
+    for testFile in "$@"; do
+        UNITTEST_RUNNING=true unittest::runSet setResult "$testFile"
+        unittest::addResults summary "${setResult[@]}" "${summary[@]}"
+    done
+
+    time::stampHr end
+    time::stampDiff diff "$start" "$end"
+    unittest::showResults "${summary[@]}" "$diff"
+}
+
+
+# Runs a single test.
+#
+# $1 - Name of test to execute.
+# $2 - Mode for running the test.
+#
+# Examples
+#
+#   unittest::runTest unittest::case::some-fancy-test strict
+#
+# Returns true (0) when the test passes. Something else when it fails.
+unittest::runTest() {
+    local oldSetOptions
+    export UNITTEST_MODE
+
+    UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 unittest::setup || return 1
+    oldSetOptions=$-
+
+    # shellcheck disable=SC2064
+    trap "UNITTEST_MODE='$2' UNITTEST_FUNCTION='$1' unittest::teardown" EXIT
+
+    case "$2" in
+        default)
+            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 "$1"
+            ;;
+
+        loose)
+            set +eEu +o pipefail
+            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 "$1"
+            ;;
+
+        strict)
+            set -eEu -o pipefail
+            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 "$1"
+            ;;
+
+        strict-ignored)
+            set -eEu -o pipefail
+            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 "$1" || return 3
+            ;;
+
+        *)
+            echo "Unknown mode: $2"
+            return 4
+    esac
+}
+
+
+# Set the modes that will be used for the execution of a test suite or
+# test set.
+#
+# $@ - Allowed test modes.
+#
+# The test modes are filtered to only accept allowed values. When there are
+# no modes passed or no valid modes passed, this will default to running
+# all test modes.
+#
+# Test modes will run the unit tests multiple times, once for each mode
+# that is enabled.
+#
+# * `default` - Use whatever settings are given by the script or are set
+#   already in the environment.
+# * `loose` - Use `set +eEu +o pipefail` to disable error catching.
+# * `strict` - Use `set -eEu -o pipefail` to enable error catching.
+# * `strict-ignored` - Use `set -eEu -o pipefail` and place the code into
+#   the special context where the error checking is ignored.
+#
+# Example
+#
+#    # Enable all test modes.
+#    unittest::setModes
+#
+#    # Only use the default and strict modes.
+#    unittest::setModes default strict
+#
+# Returns nothing.
+unittest::setModes() {
+    UNITTEST_MODES=()
+
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            "")
+                ;;
+
+            default|loose|strict|strict-ignored)
+                UNITTEST_MODES[${#UNITTEST_MODES[@]}]=$1
+                ;;
+
+            *)
+                echo "Invalid mode: $1" >&2
+                return 1
+        esac
+
+        shift
+    done
+
+    if [[ "${#UNITTEST_MODES[@]}" -eq 0 ]]; then
+        UNITTEST_MODES=(default loose strict strict-ignored)
+    fi
+
+    assign::array unittest_modes "${UNITTEST_MODES[@]}"
+}
+
+# Display the results of running the tests.
+#
+# $@ - Summary array, plus one extra element for elapsed time.
+#
+# Examples
+#
+#   time::stampHr start
+#   unittest::runSet summary test-filename
+#   time::stampHr end
+#   time::stampDiff diff "$start" "$end"
+#   unittest::showResults "${summary[@]}"
+#
+# Returns 1 when no tests were found. Returns 2 when there were failures.
+unittest::showResults() {
+    if [[ "$1" -eq 0 ]]; then
+        echo "No test cases defined." >&2
+
+        return 1
+    fi
+
+    echo ""
+    echo "$2 passed, $3 failed in $4 seconds."
+
+    if [[ "$3" -gt 0 ]]; then
+        return 2
+    fi
+}

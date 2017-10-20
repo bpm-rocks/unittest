@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+. bpm
+bpm::include unittest
+
+if [[ "$#" -lt 1 ]]; then
+    cat <<'EOF' >&2
+Bash Unit Test
+
+Specify unit test files as arguments to this command.
+
+Example:
+
+    unittest test/*.test
+EOF
+fi
+
+unittest::runSuite "$@"

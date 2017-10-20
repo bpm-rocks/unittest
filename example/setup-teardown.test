@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+. bpm
+bpm::include unittest
+unittest::run
+
+unittest::setup() {
+    echo "Setup called - Test $UNITTEST_FUNCTION, mode $UNITTEST_MODE"
+}
+
+unittest::teardown() {
+    echo "Tear down called - Test $UNITTEST_FUNCTION, mode $UNITTEST_MODE"
+}
+
+unittest::case::log-a-message() {
+    echo "Test $UNITTEST_FUNCTION, mode $UNITTEST_MODE"
+}

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+. bpm
+bpm::include unittest
+unittest::run
+
+unittest::case::two-plus-two-equals-four() {
+    [[ "$((2 + 2))" == 4 ]]
+}

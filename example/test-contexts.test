@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+. bpm
+bpm::include unittest
+unittest::run
+
+failFunction() {
+    # First, a failure
+    false
+    echo "Should not have gotten here."
+}
+
+unittest::case::command-fails-but-next-command-works() {
+    local result
+
+    result="$(
+        # Disable errors outside the subshell
+        set +eE
+        trap - ERR
+        (
+            # Force errors to exit the program, trigger an error
+            set -eE
+            false
+
+            echo "Should not get here with 'exit immediately' enabled"
+        )
+    )"
+
+    if [[ -n "$result" ]]; then
+        # The commands above should not have produced output. When in
+        # strict-ignore mode, the above code doesn't stop at "false".
+        echo "$UNITTEST_MODE output: $result"
+
+        return 1
+    fi
+}
+
+unittest::case::undefined-variable() {
+    # When set to "strict", this test will fail because no arguments are passed
+    # to the function.
+    echo "$1" &> /dev/null
+}
