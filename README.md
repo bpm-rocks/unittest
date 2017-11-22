@@ -18,7 +18,7 @@ This will go download the program and put it in your user's local installation o
 You could also list this in your `bpm.ini` file under the `devDependencies` section. If you do it this way, you can use `bpm install` to get the software and all dependencies.
 
     [devDependencies]
-    0=unittest
+    unittest=*
 
 
 Getting Started
