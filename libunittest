@@ -170,7 +170,7 @@ unittest::runSet() {
     fi
 
     . "./${filename##*/}"
-    
+
     if unittest::getTestFunctions list; then
         for test in "${list[@]}"; do
             for mode in "${UNITTEST_MODES[@]}"; do
@@ -251,39 +251,40 @@ unittest::runSuite() {
 #
 # Returns true (0) when the test passes. Something else when it fails.
 unittest::runTest() {
-    local oldSetOptions
-    export UNITTEST_MODE
+    local result
 
+    result=0
     UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 unittest::setup || return 1
-    oldSetOptions=$-
-
-    # shellcheck disable=SC2064
-    trap "UNITTEST_MODE='$2' UNITTEST_FUNCTION='$1' unittest::teardown" EXIT
 
     case "$2" in
         default)
-            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 "$1"
+            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 strict::run result "$1"
             ;;
 
         loose)
             set +eEu +o pipefail
-            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 "$1"
+            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 strict::run result "$1"
             ;;
 
         strict)
             set -eEu -o pipefail
-            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 "$1"
+            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 strict::run result "$1"
             ;;
 
         strict-ignored)
             set -eEu -o pipefail
-            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 "$1" || return 3
+            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 "$1" || result=3
             ;;
 
         *)
             echo "Unknown mode: $2"
             return 4
     esac
+
+    # shellcheck disable=SC2064
+    UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 unittest::teardown
+
+    return "$result"
 }
 
 
