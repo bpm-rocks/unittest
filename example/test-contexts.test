@@ -9,6 +9,10 @@ failFunction() {
     echo "Should not have gotten here."
 }
 
+# default        - test passes
+# loose          - test passes
+# strict         - test fails because last command (the subshell) fails
+# strict-ignored - writes output and test fails due to last command failing
 unittest::case::command-fails-but-next-command-works() {
     local result
 
@@ -34,6 +38,10 @@ unittest::case::command-fails-but-next-command-works() {
     fi
 }
 
+# default        - test passes
+# loose          - test passes
+# strict         - test fails
+# strict-ignored - test fails
 unittest::case::undefined-variable() {
     # When set to "strict", this test will fail because no arguments are passed
     # to the function.
