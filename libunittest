@@ -273,7 +273,7 @@ unittest::runTest() {
 
         strict-ignored)
             set -eEu -o pipefail
-            UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 "$1" || result=3
+            ( UNITTEST_MODE=$2 UNITTEST_FUNCTION=$1 "$1" ) || result=3
             ;;
 
         *)
